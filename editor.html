@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font:13px Roboto,Arial,sans-serif;color:#222;background:#fff}
+  #app{display:flex;height:100vh}
+  #left{flex:1;display:flex;flex-direction:column;min-width:0}
+  #bar{display:flex;gap:6px;align-items:center;padding:6px 8px;border-bottom:1px solid #d9dce1;background:#f6f7f9;flex-wrap:wrap}
+  #stage{flex:1;position:relative;background:#dfe2e7;overflow:hidden}
+  #cv{position:absolute;box-shadow:0 2px 14px rgba(0,0,0,.3);cursor:crosshair;touch-action:none;user-select:none;background:#fff}
+  #inline{position:absolute;display:none;z-index:10;font:15px Roboto,Arial,sans-serif;padding:7px 10px;
+          border:2px solid #2b7de9;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.25);outline:none}
+  #panel{width:310px;border-left:1px solid #d9dce1;padding:12px;overflow-y:auto;background:#fafbfc}
+  h3{margin:14px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:#555}
+  h3:first-child{margin-top:0}
+  button{font:inherit;padding:6px 10px;border:1px solid #c5c9d0;background:#fff;border-radius:6px;cursor:pointer}
+  button:hover{background:#eef2f8}
+  button:disabled{opacity:.45;cursor:default}
+  button.primary{background:#2b7de9;color:#fff;border-color:#2b7de9}
+  button.primary:hover{background:#1f6bd0}
+  input[type=text],input[type=number]{width:100%;padding:6px 8px;border:1px solid #c5c9d0;border-radius:6px;font:inherit}
+  input[type=color]{width:100%;height:30px;padding:2px;border:1px solid #c5c9d0;border-radius:6px;background:#fff}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .grid label{display:block;font-size:12px;color:#555;margin-bottom:2px}
+  #list{max-height:240px;overflow-y:auto;border:1px solid #d9dce1;border-radius:6px;background:#fff}
+  #list div{padding:6px 10px;cursor:pointer;border-bottom:1px solid #eef0f3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #list div.sel{background:#2b7de9;color:#fff}
+  #list .empty{color:#999;cursor:default}
+  .hint{font-size:12px;color:#666;line-height:1.5;margin-top:12px;background:#fff;border:1px solid #e3e6ea;border-radius:6px;padding:8px 10px}
+  .sp{flex:1}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="left">
+    <div id="bar">
+      <button id="bUndo" title="Ctrl/Cmd+Z">↶ Cofnij</button>
+      <button id="bRedo" title="Ctrl/Cmd+Shift+Z">↷ Ponów</button>
+      <button id="bAlign" title="Ustaw opisy w równych kolumnach">⇥ Wyrównaj opisy</button>
+      <button id="bFit" title="Dodaje marginesy, by wszystkie opisy się zmieściły">⤢ Dopasuj płótno</button>
+      <span class="sp"></span>
+      <button id="bSave">💾 Zapisz projekt</button>
+      <button id="bLoad">📂 Wczytaj projekt</button>
+      <button id="bExport" class="primary">⬇ Eksport PNG</button>
+      <input id="fileIn" type="file" accept=".json" style="display:none">
+    </div>
+    <div id="stage">
+      <canvas id="cv"></canvas>
+      <input id="inline" type="text" autocomplete="off">
+    </div>
+  </div>
+
+  <div id="panel">
+    <h3>Opisy</h3>
+    <div id="list"></div>
+    <div style="margin-top:8px">
+      <label style="font-size:12px;color:#555">Tekst zaznaczonego opisu (<b>|</b> = nowa linia)</label>
+      <input type="text" id="selText" disabled>
+      <button id="bDel" style="margin-top:6px;width:100%" disabled>🗑 Usuń zaznaczony</button>
+    </div>
+
+    <h3>Wygląd</h3>
+    <div class="grid">
+      <div><label>Rozmiar tekstu (px)</label><input type="number" id="f_font_size" min="6" max="400" step="1"></div>
+      <div><label>Grubość linii (px)</label><input type="number" id="f_line_w" min="0.5" max="30" step="0.5"></div>
+      <div><label>Maks. szerokość opisu (%)</label><input type="number" id="f_wrap_pct" min="5" max="100" step="1"></div>
+      <div><label>Kolor linii i tekstu</label><input type="color" id="c_color"></div>
+    </div>
+
+    <h3>Płótno – marginesy (px)</h3>
+    <div class="grid">
+      <div><label>Lewy</label><input type="number" id="f_pl" min="0" step="20"></div>
+      <div><label>Prawy</label><input type="number" id="f_pr" min="0" step="20"></div>
+      <div><label>Górny</label><input type="number" id="f_pt" min="0" step="20"></div>
+      <div><label>Dolny</label><input type="number" id="f_pb" min="0" step="20"></div>
+      <div style="grid-column:1/3"><label>Kolor marginesów</label><input type="color" id="c_bg"></div>
+    </div>
+
+    <div class="hint">
+      <b>Nowy opis:</b> przeciągnij od punktu na schemacie w miejsce opisu, puść i wpisz tekst (Enter).<br>
+      <b>Przesuwanie:</b> złap kropkę lub tekst.<br>
+      <b>Edycja:</b> dwuklik na opisie.<br>
+      <b>Usuwanie:</b> zaznacz i Delete.<br>
+      <b>Cofanie:</b> Ctrl/Cmd+Z.
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+const FONT = 'Roboto, Arial, "Helvetica Neue", sans-serif';
+const IMG_SRC = __IMAGE__;
+const FILE_NAME = __NAME__;
+const $ = id => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d'), stage = $('stage'), ed = $('inline');
+const mc = document.createElement('canvas').getContext('2d');
+const img = new Image();
+const dpr = Math.max(1, window.devicePixelRatio || 1);
+
+let st = {labels:[], font_size:30, line_w:3, wrap_pct:24, color:'#222222', bg:'#ffffff', pl:0, pt:0, pr:0, pb:0};
+let sel = null, vs = 1, cvLeft = 0, cvTop = 0, drag = null;
+let edIdx = null, edNew = false, edOrig = '';
+let undoS = [], redoS = [], base = '';
+
+const NUM = ['font_size','line_w','wrap_pct','pl','pt','pr','pb'];
+const COL = ['color','bg'];
+const totW = () => img.naturalWidth + st.pl + st.pr;
+const totH = () => img.naturalHeight + st.pt + st.pb;
+
+/* ---------- historia ---------- */
+const snap = () => JSON.stringify(st);
+function commit(){
+  const s = snap();
+  if (s !== base){ undoS.push(base); if (undoS.length > 100) undoS.shift(); redoS = []; base = s; }
+}
+function restore(s){
+  st = JSON.parse(s); base = s;
+  if (sel !== null && sel >= st.labels.length) sel = null;
+  syncUI(); fit();
+}
+function undo(){ if (!undoS.length) return; redoS.push(snap()); restore(undoS.pop()); }
+function redo(){ if (!redoS.length) return; undoS.push(snap()); restore(redoS.pop()); }
+
+/* ---------- geometria i rysowanie ---------- */
+function wrapText(c, text, maxw){
+  const lines = [];
+  for (const part of text.split(/\||\n/)){
+    let cur = '';
+    for (const w of part.split(/\s+/).filter(Boolean)){
+      const t = cur ? cur + ' ' + w : w;
+      if (cur && c.measureText(t).width > maxw){ lines.push(cur); cur = w; } else cur = t;
+    }
+    lines.push(cur);
+  }
+  const r = lines.filter(Boolean);
+  return r.length ? r : [''];
+}
+
+function geom(c, l, k, opt){
+  opt = opt || {};
+  const clamp = opt.clamp !== false;
+  const fpx = st.font_size * k;
+  c.font = fpx + 'px ' + FONT;
+  const pad = fpx * .35, m = fpx * .3;
+  const Wpx = totW() * k, Hpx = totH() * k;
+  const ax = (l.ax + st.pl) * k, ay = (l.ay + st.pt) * k;
+  let tx = (l.tx + st.pl) * k, ty = (l.ty + st.pt) * k;
+  const right = tx >= ax;
+  let maxw = opt.maxw !== undefined ? opt.maxw : st.wrap_pct / 100 * totW() * k;
+  if (clamp) maxw = Math.min(maxw, (right ? Wpx - tx : tx) - 2 * pad - m);
+  maxw = Math.max(maxw, fpx * 3);
+  const lines = wrapText(c, l.text, maxw);
+  const tw = Math.max(...lines.map(t => c.measureText(t).width));
+  let xend = right ? tx + tw + 2 * pad : tx - tw - 2 * pad;
+  const lh = fpx * 1.2;
+  let top = ty - fpx * .28 - (lines.length - 1) * lh - fpx * .8;
+  if (clamp){
+    if (right && xend > Wpx - m){ tx -= xend - (Wpx - m); xend = Wpx - m; }
+    if (!right && xend < m){ tx += m - xend; xend = m; }
+    if (top < m){ ty += m - top; top = m; }
+    if (ty > Hpx - m) ty = Hpx - m;
+  }
+  const textx = right ? tx + pad : xend + pad;
+  return {ax, ay, tx, ty, xend, textx, lines, lh, top, fpx, right};
+}
+
+function paint(c, k, u){
+  const TW = totW(), TH = totH();
+  c.fillStyle = st.bg; c.fillRect(0, 0, TW * k, TH * k);
+  c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+  c.drawImage(img, st.pl * k, st.pt * k, img.naturalWidth * k, img.naturalHeight * k);
+  const lw = Math.max(1, st.line_w * k);
+  c.lineCap = 'round'; c.lineJoin = 'round'; c.textBaseline = 'alphabetic'; c.textAlign = 'left';
+  for (const l of st.labels){
+    const g = geom(c, l, k);
+    c.setLineDash([]);
+    c.strokeStyle = st.color; c.lineWidth = lw;
+    c.beginPath(); c.moveTo(g.ax, g.ay); c.lineTo(g.tx, g.ty); c.lineTo(g.xend, g.ty); c.stroke();
+    const dr = Math.max(2, lw * 1.9);
+    c.fillStyle = 'rgba(255,255,255,.9)'; c.beginPath(); c.arc(g.ax, g.ay, dr + lw * .8, 0, 7); c.fill();
+    c.fillStyle = st.color; c.beginPath(); c.arc(g.ax, g.ay, dr, 0, 7); c.fill();
+    const n = g.lines.length, halo = Math.max(1, g.fpx * .12);
+    g.lines.forEach((t, j) => {
+      const y = g.ty - g.fpx * .28 - (n - 1 - j) * g.lh;
+      c.lineWidth = halo * 2; c.strokeStyle = 'rgba(255,255,255,.8)'; c.strokeText(t, g.textx, y);
+      c.fillStyle = st.color; c.fillText(t, g.textx, y);
+    });
+  }
+  if (u && sel !== null && st.labels[sel]){
+    const g = geom(c, st.labels[sel], k);
+    c.setLineDash([]); c.lineWidth = 2 * u; c.strokeStyle = '#e53935';
+    c.beginPath(); c.arc(g.ax, g.ay, 9 * u, 0, 7); c.stroke();
+    c.strokeRect(g.tx - 6 * u, g.ty - 6 * u, 12 * u, 12 * u);
+    c.setLineDash([4 * u, 3 * u]); c.strokeStyle = '#2b7de9';
+    const x0 = Math.min(g.tx, g.xend) - 4 * u, x1 = Math.max(g.tx, g.xend) + 4 * u;
+    c.strokeRect(x0, g.top - 4 * u, x1 - x0, g.ty - g.top + 8 * u);
+    c.setLineDash([]);
+  }
+}
+
+function render(){
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  paint(ctx, vs * dpr, dpr);
+}
+
+function fit(){
+  if (!img.naturalWidth) return;
+  const TW = totW(), TH = totH();
+  const sw = stage.clientWidth - 24, sh = stage.clientHeight - 24;
+  vs = Math.min(sw / TW, sh / TH, 3);
+  const W = Math.round(TW * vs), H = Math.round(TH * vs);
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  cvLeft = Math.round((stage.clientWidth - W) / 2);
+  cvTop = Math.round((stage.clientHeight - H) / 2);
+  cv.style.left = cvLeft + 'px'; cv.style.top = cvTop + 'px';
+  render();
+}
+
+/* ---------- interakcja ---------- */
+function pt(e){
+  const r = cv.getBoundingClientRect();
+  return {x: Math.min(Math.max(e.clientX - r.left, 0), r.width),
+          y: Math.min(Math.max(e.clientY - r.top, 0), r.height)};
+}
+
+function hit(x, y){
+  for (let i = st.labels.length - 1; i >= 0; i--){
+    const g = geom(mc, st.labels[i], vs);
+    if (Math.hypot(x - g.ax, y - g.ay) <= 11) return {i, part: 'a'};
+  }
+  for (let i = st.labels.length - 1; i >= 0; i--){
+    const g = geom(mc, st.labels[i], vs);
+    const x0 = Math.min(g.tx, g.xend) - 6, x1 = Math.max(g.tx, g.xend) + 6;
+    if (x >= x0 && x <= x1 && y >= g.top - 6 && y <= g.ty + 8) return {i, part: 't'};
+  }
+  return null;
+}
+
+cv.addEventListener('pointerdown', e => {
+  if (edIdx !== null) closeEditor(true);
+  cv.setPointerCapture(e.pointerId);
+  const p = pt(e), h = hit(p.x, p.y);
+  if (h){
+    sel = h.i;
+    drag = {mode: h.part, i: h.i, lx: p.x, ly: p.y};
+    cv.style.cursor = 'grabbing';
+  } else {
+    sel = null;
+    drag = {mode: 'new', sx: p.x, sy: p.y};
+  }
+  refreshList(); selectUI(); render();
+});
+
+cv.addEventListener('pointermove', e => {
+  const p = pt(e);
+  if (!drag){
+    const h = hit(p.x, p.y);
+    cv.style.cursor = h ? (h.part === 'a' ? 'grab' : 'move') : 'crosshair';
+    return;
+  }
+  if (drag.mode === 'new'){
+    if (Math.hypot(p.x - drag.sx, p.y - drag.sy) > 12){
+      st.labels.push({text: '…', ax: Math.round(drag.sx / vs - st.pl), ay: Math.round(drag.sy / vs - st.pt),
+                      tx: p.x / vs - st.pl, ty: p.y / vs - st.pt});
+      sel = st.labels.length - 1;
+      drag = {mode: 'newdrag', i: sel};
+      refreshList(); selectUI();
+    }
+  } else {
+    const l = st.labels[drag.i];
+    if (drag.mode === 'a'){ l.ax = Math.round(p.x / vs - st.pl); l.ay = Math.round(p.y / vs - st.pt); }
+    else if (drag.mode === 't'){ l.tx += (p.x - drag.lx) / vs; l.ty += (p.y - drag.ly) / vs; drag.lx = p.x; drag.ly = p.y; }
+    else if (drag.mode === 'newdrag'){ l.tx = p.x / vs - st.pl; l.ty = p.y / vs - st.pt; }
+  }
+  render();
+});
+
+cv.addEventListener('pointerup', () => {
+  if (!drag) return;
+  const d = drag; drag = null;
+  cv.style.cursor = 'crosshair';
+  if (d.mode === 'newdrag'){
+    const l = st.labels[d.i]; l.tx = Math.round(l.tx); l.ty = Math.round(l.ty);
+    openEditor(d.i, true);
+  } else if (d.mode === 'new'){
+    render();
+  } else {
+    const l = st.labels[d.i]; l.tx = Math.round(l.tx); l.ty = Math.round(l.ty);
+    commit();
+  }
+});
+
+cv.addEventListener('dblclick', e => {
+  const p = pt(e), h = hit(p.x, p.y);
+  if (h){ sel = h.i; refreshList(); selectUI(); render(); openEditor(h.i, false); }
+});
+
+/* ---------- edytor w miejscu ---------- */
+function openEditor(i, isNew){
+  const l = st.labels[i];
+  edIdx = i; edNew = isNew; edOrig = l.text;
+  const g = geom(mc, l, vs);
+  const w = Math.max(260, Math.min(440, stage.clientWidth - 20));
+  let x = cvLeft + Math.min(g.tx, g.xend);
+  let y = cvTop + g.top - 48;
+  if (y < 6) y = cvTop + g.ty + 14;
+  x = Math.max(6, Math.min(x, stage.clientWidth - w - 6));
+  y = Math.max(6, Math.min(y, stage.clientHeight - 46));
+  Object.assign(ed.style, {display: 'block', left: x + 'px', top: y + 'px', width: w + 'px'});
+  ed.placeholder = 'Wpisz opis i naciśnij Enter  (| = nowa linia)';
+  ed.value = isNew ? '' : l.text;
+  ed.focus(); ed.select();
+  render();
+}
+
+function closeEditor(ok){
+  if (edIdx === null) return;
+  const i = edIdx; edIdx = null;
+  ed.style.display = 'none';
+  const l = st.labels[i], v = ed.value.trim();
+  if (ok && v) l.text = v;
+  else if (edNew){ st.labels.splice(i, 1); sel = null; }
+  else l.text = edOrig;
+  commit(); refreshList(); selectUI(); render();
+}
+
+ed.addEventListener('input', () => {
+  if (edIdx !== null){ st.labels[edIdx].text = ed.value.trim() || '…'; render(); }
+});
+ed.addEventListener('keydown', e => {
+  if (e.key === 'Enter'){ e.preventDefault(); closeEditor(true); }
+  else if (e.key === 'Escape'){ e.preventDefault(); closeEditor(false); }
+});
+ed.addEventListener('blur', () => closeEditor(true));
+
+/* ---------- panel ---------- */
+function refreshList(){
+  const box = $('list'); box.innerHTML = '';
+  if (!st.labels.length){
+    const d = document.createElement('div'); d.className = 'empty'; d.textContent = 'Brak opisów'; box.appendChild(d); return;
+  }
+  st.labels.forEach((l, i) => {
+    const d = document.createElement('div');
+    d.textContent = (i + 1) + '. ' + l.text.replace(/\|/g, ' ⏎ ');
+    if (i === sel) d.className = 'sel';
+    d.onclick = () => { sel = i; refreshList(); selectUI(); render(); };
+    box.appendChild(d);
+  });
+}
+function selectUI(){
+  const has = sel !== null && st.labels[sel];
+  $('selText').disabled = !has; $('bDel').disabled = !has;
+  if (document.activeElement !== $('selText')) $('selText').value = has ? st.labels[sel].text : '';
+}
+function syncUI(){
+  NUM.forEach(k => $('f_' + k).value = st[k]);
+  COL.forEach(k => $('c_' + k).value = st[k]);
+  refreshList(); selectUI();
+}
+
+$('selText').addEventListener('input', e => {
+  if (sel === null) return;
+  st.labels[sel].text = e.target.value; render();
+  const row = $('list').children[sel]; if (row) row.textContent = (sel + 1) + '. ' + e.target.value.replace(/\|/g, ' ⏎ ');
+});
+$('selText').addEventListener('change', e => {
+  if (sel === null) return;
+  if (!e.target.value.trim()){ delSel(); return; }
+  st.labels[sel].text = e.target.value.trim(); commit(); refreshList(); render();
+});
+$('selText').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
+
+function delSel(){
+  if (sel === null) return;
+  st.labels.splice(sel, 1); sel = null;
+  commit(); refreshList(); selectUI(); render();
+}
+$('bDel').onclick = delSel;
+
+NUM.forEach(k => {
+  const el = $('f_' + k);
+  el.addEventListener('input', () => {
+    const v = parseFloat(el.value); if (isNaN(v)) return;
+    st[k] = Math.max(0, v);
+    if (k[0] === 'p') fit(); else render();
+  });
+  el.addEventListener('change', commit);
+});
+COL.forEach(k => {
+  const el = $('c_' + k);
+  el.addEventListener('input', () => { st[k] = el.value; render(); });
+  el.addEventListener('change', commit);
+});
+
+/* ---------- akcje ---------- */
+function align(){
+  if (!st.labels.length) return;
+  const R = st.labels.filter(l => l.tx >= l.ax), L = st.labels.filter(l => l.tx < l.ax);
+  if (R.length){ const x = Math.max(...R.map(l => l.tx)); R.forEach(l => l.tx = x); }
+  if (L.length){ const x = Math.min(...L.map(l => l.tx)); L.forEach(l => l.tx = x); }
+  commit(); render();
+}
+
+function autofit(){
+  if (!st.labels.length) return;
+  st.pl = st.pt = st.pr = st.pb = 0;
+  const W = img.naturalWidth, H = img.naturalHeight;
+  let minx = 0, miny = 0, maxx = W, maxy = H;
+  const maxw = st.wrap_pct / 100 * W;
+  for (const l of st.labels){
+    const g = geom(mc, l, 1, {clamp: false, maxw});
+    for (const x of [g.ax, g.tx, g.xend]){ minx = Math.min(minx, x); maxx = Math.max(maxx, x); }
+    miny = Math.min(miny, g.top, g.ay); maxy = Math.max(maxy, g.ty, g.ay);
+  }
+  const m = st.font_size * .6;
+  st.pl = minx < 0 ? Math.ceil(-minx + m) : 0;
+  st.pt = miny < 0 ? Math.ceil(-miny + m) : 0;
+  st.pr = maxx > W ? Math.ceil(maxx - W + m) : 0;
+  st.pb = maxy > H ? Math.ceil(maxy - H + m) : 0;
+  commit(); syncUI(); fit();
+}
+
+function download(blob, name){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+const baseName = FILE_NAME.replace(/\.[^.]+$/, '');
+
+function exportPNG(){
+  const c = document.createElement('canvas');
+  c.width = totW(); c.height = totH();
+  const x = c.getContext('2d');
+  paint(x, 1, 0);
+  c.toBlob(b => download(b, baseName + '_opisany.png'), 'image/png');
+}
+function saveProject(){
+  download(new Blob([JSON.stringify(st, null, 2)], {type: 'application/json'}), baseName + '_projekt.json');
+}
+function loadProject(file){
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (!Array.isArray(d.labels)) throw 0;
+      st = Object.assign({}, st, d); sel = null;
+      commit(); syncUI(); fit();
+    } catch(e){ alert('Nieprawidłowy plik projektu.'); }
+  };
+  r.readAsText(file);
+}
+
+$('bUndo').onclick = undo; $('bRedo').onclick = redo;
+$('bAlign').onclick = align; $('bFit').onclick = autofit;
+$('bExport').onclick = exportPNG; $('bSave').onclick = saveProject;
+$('bLoad').onclick = () => $('fileIn').click();
+$('fileIn').onchange = e => { if (e.target.files[0]) loadProject(e.target.files[0]); e.target.value = ''; };
+
+document.addEventListener('keydown', e => {
+  const typing = ['INPUT', 'TEXTAREA'].includes(e.target.tagName);
+  const mod = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
+  if (typing) return;
+  if (mod && key === 'z'){ e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  else if (mod && key === 'y'){ e.preventDefault(); redo(); }
+  else if (e.key === 'Delete' || e.key === 'Backspace'){ e.preventDefault(); delSel(); }
+  else if (e.key === 'Escape'){ sel = null; refreshList(); selectUI(); render(); }
+});
+window.addEventListener('resize', fit);
+
+/* ---------- start ---------- */
+function sampleBg(){
+  const W = img.naturalWidth, H = img.naturalHeight, s = Math.min(1, 200 / W);
+  const c = document.createElement('canvas');
+  c.width = Math.max(12, Math.round(W * s)); c.height = Math.max(12, Math.round(H * s));
+  const x = c.getContext('2d'); x.drawImage(img, 0, 0, c.width, c.height);
+  const n = 6, pts = [[0, 0], [c.width - n, 0], [0, c.height - n], [c.width - n, c.height - n]];
+  let r = 0, g = 0, b = 0, cnt = 0;
+  for (const [px, py] of pts){
+    const d = x.getImageData(px, py, n, n).data;
+    for (let i = 0; i < d.length; i += 4){ r += d[i]; g += d[i + 1]; b += d[i + 2]; cnt++; }
+  }
+  const h = v => Math.round(v / cnt).toString(16).padStart(2, '0');
+  return '#' + h(r) + h(g) + h(b);
+}
+
+img.onload = () => {
+  const W = img.naturalWidth;
+  st.font_size = Math.max(14, Math.round(W * 0.02));
+  st.line_w = Math.max(1.5, Math.round(W * 0.0013 * 10) / 10);
+  try { st.bg = sampleBg(); } catch(e) {}
+  base = snap();
+  syncUI();
+  requestAnimationFrame(fit);
+};
+img.src = IMG_SRC;
+if (document.fonts && document.fonts.load){
+  document.fonts.load('20px Roboto').then(() => render()).catch(() => {});
+}
+})();
+</script>
+</body>
+</html>
