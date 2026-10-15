@@ -23,6 +23,7 @@
   button.primary:hover{background:#1f6bd0}
   input[type=text],input[type=number]{width:100%;padding:6px 8px;border:1px solid #c5c9d0;border-radius:6px;font:inherit}
   input[type=color]{width:100%;height:30px;padding:2px;border:1px solid #c5c9d0;border-radius:6px;background:#fff}
+  select{width:100%;padding:6px 8px;border:1px solid #c5c9d0;border-radius:6px;font:inherit;background:#fff}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .grid label{display:block;font-size:12px;color:#555;margin-bottom:2px}
   #list{max-height:240px;overflow-y:auto;border:1px solid #d9dce1;border-radius:6px;background:#fff}
@@ -68,6 +69,16 @@
       <div><label>Grubość linii (px)</label><input type="number" id="f_line_w" min="0.5" max="30" step="0.5"></div>
       <div><label>Maks. szerokość opisu (%)</label><input type="number" id="f_wrap_pct" min="5" max="100" step="1"></div>
       <div><label>Kolor linii i tekstu</label><input type="color" id="c_color"></div>
+      <div style="grid-column:1/3"><label>Styl opisu</label>
+        <select id="s_mode">
+          <option value="shelf">Klasyczny (podkreślenie)</option>
+          <option value="badge">Plakietka (do zdjęć)</option>
+        </select></div>
+      <div><label>Obwódka tekstu (% czcionki)</label><input type="number" id="f_halo_pct" min="0" max="50" step="1"></div>
+      <div><label>Krycie plakietki (%)</label><input type="number" id="f_box_alpha" min="0" max="100" step="5"></div>
+      <div><label>Kolor plakietki</label><input type="color" id="c_box_bg"></div>
+      <div style="grid-column:1/3"><label style="display:flex;gap:6px;align-items:center">
+        <input type="checkbox" id="k_casing"> Jasna obwódka wokół linii</label></div>
     </div>
 
     <h3>Płótno – marginesy (px)</h3>
@@ -84,7 +95,8 @@
       <b>Przesuwanie:</b> złap kropkę lub tekst.<br>
       <b>Edycja:</b> dwuklik na opisie.<br>
       <b>Usuwanie:</b> zaznacz i Delete.<br>
-      <b>Cofanie:</b> Ctrl/Cmd+Z.
+      <b>Cofanie:</b> Ctrl/Cmd+Z.<br>
+      <b>Zdjęcia:</b> wybierz styl „Plakietka”.
     </div>
   </div>
 </div>
@@ -100,13 +112,14 @@ const mc = document.createElement('canvas').getContext('2d');
 const img = new Image();
 const dpr = Math.max(1, window.devicePixelRatio || 1);
 
-let st = {labels:[], font_size:30, line_w:3, wrap_pct:24, color:'#222222', bg:'#ffffff', pl:0, pt:0, pr:0, pb:0};
+let st = {labels:[], font_size:30, line_w:3, wrap_pct:24, color:'#222222', bg:'#ffffff', pl:0, pt:0, pr:0, pb:0,
+          mode:'shelf', halo_pct:15, box_alpha:92, box_bg:'#ffffff', casing:true};
 let sel = null, vs = 1, cvLeft = 0, cvTop = 0, drag = null;
 let edIdx = null, edNew = false, edOrig = '';
 let undoS = [], redoS = [], base = '';
 
-const NUM = ['font_size','line_w','wrap_pct','pl','pt','pr','pb'];
-const COL = ['color','bg'];
+const NUM = ['font_size','line_w','wrap_pct','pl','pt','pr','pb','halo_pct','box_alpha'];
+const COL = ['color','bg','box_bg'];
 const totW = () => img.naturalWidth + st.pl + st.pr;
 const totH = () => img.naturalHeight + st.pt + st.pb;
 
@@ -123,6 +136,17 @@ function restore(s){
 }
 function undo(){ if (!undoS.length) return; redoS.push(snap()); restore(undoS.pop()); }
 function redo(){ if (!redoS.length) return; undoS.push(snap()); restore(redoS.pop()); }
+
+/* ---------- pomocnicze rysowanie ---------- */
+function rr(c, x, y, w, h, r){
+  c.beginPath(); c.moveTo(x + r, y); c.lineTo(x + w - r, y); c.arcTo(x + w, y, x + w, y + r, r);
+  c.lineTo(x + w, y + h - r); c.arcTo(x + w, y + h, x + w - r, y + h, r); c.lineTo(x + r, y + h);
+  c.arcTo(x, y + h, x, y + h - r, r); c.lineTo(x, y + r); c.arcTo(x, y, x + r, y, r); c.closePath();
+}
+function rgba(hex, a){
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
+}
 
 /* ---------- geometria i rysowanie ---------- */
 function wrapText(c, text, maxw){
@@ -142,9 +166,10 @@ function wrapText(c, text, maxw){
 function geom(c, l, k, opt){
   opt = opt || {};
   const clamp = opt.clamp !== false;
+  const badge = st.mode === 'badge';
   const fpx = st.font_size * k;
   c.font = fpx + 'px ' + FONT;
-  const pad = fpx * .35, m = fpx * .3;
+  const pad = fpx * (badge ? .6 : .35), m = fpx * .3;
   const Wpx = totW() * k, Hpx = totH() * k;
   const ax = (l.ax + st.pl) * k, ay = (l.ay + st.pt) * k;
   let tx = (l.tx + st.pl) * k, ty = (l.ty + st.pt) * k;
@@ -156,15 +181,18 @@ function geom(c, l, k, opt){
   const tw = Math.max(...lines.map(t => c.measureText(t).width));
   let xend = right ? tx + tw + 2 * pad : tx - tw - 2 * pad;
   const lh = fpx * 1.2;
-  let top = ty - fpx * .28 - (lines.length - 1) * lh - fpx * .8;
+  const boxh = lines.length * lh + fpx * .3;
+  let top, bottom;
+  if (badge){ top = ty - boxh / 2; bottom = ty + boxh / 2; }
+  else { top = ty - fpx * .28 - (lines.length - 1) * lh - fpx * .8; bottom = ty; }
   if (clamp){
     if (right && xend > Wpx - m){ tx -= xend - (Wpx - m); xend = Wpx - m; }
     if (!right && xend < m){ tx += m - xend; xend = m; }
-    if (top < m){ ty += m - top; top = m; }
-    if (ty > Hpx - m) ty = Hpx - m;
+    if (top < m){ const d = m - top; ty += d; top += d; bottom += d; }
+    if (bottom > Hpx - m){ const d = bottom - (Hpx - m); ty -= d; top -= d; bottom -= d; }
   }
   const textx = right ? tx + pad : xend + pad;
-  return {ax, ay, tx, ty, xend, textx, lines, lh, top, fpx, right};
+  return {ax, ay, tx, ty, xend, textx, lines, lh, top, bottom, boxh, badge, fpx, right};
 }
 
 function paint(c, k, u){
@@ -173,21 +201,41 @@ function paint(c, k, u){
   c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
   c.drawImage(img, st.pl * k, st.pt * k, img.naturalWidth * k, img.naturalHeight * k);
   const lw = Math.max(1, st.line_w * k);
-  c.lineCap = 'round'; c.lineJoin = 'round'; c.textBaseline = 'alphabetic'; c.textAlign = 'left';
+  c.lineCap = 'round'; c.lineJoin = 'round'; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
   for (const l of st.labels){
     const g = geom(c, l, k);
+    const path = () => {
+      c.beginPath(); c.moveTo(g.ax, g.ay); c.lineTo(g.tx, g.ty);
+      if (!g.badge) c.lineTo(g.xend, g.ty);
+    };
     c.setLineDash([]);
-    c.strokeStyle = st.color; c.lineWidth = lw;
-    c.beginPath(); c.moveTo(g.ax, g.ay); c.lineTo(g.tx, g.ty); c.lineTo(g.xend, g.ty); c.stroke();
+    if (st.casing){ c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = lw * 2.4; path(); c.stroke(); }
+    c.strokeStyle = st.color; c.lineWidth = lw; path(); c.stroke();
     const dr = Math.max(2, lw * 1.9);
-    c.fillStyle = 'rgba(255,255,255,.9)'; c.beginPath(); c.arc(g.ax, g.ay, dr + lw * .8, 0, 7); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.95)'; c.beginPath(); c.arc(g.ax, g.ay, dr + lw * .9, 0, 7); c.fill();
     c.fillStyle = st.color; c.beginPath(); c.arc(g.ax, g.ay, dr, 0, 7); c.fill();
-    const n = g.lines.length, halo = Math.max(1, g.fpx * .12);
-    g.lines.forEach((t, j) => {
-      const y = g.ty - g.fpx * .28 - (n - 1 - j) * g.lh;
-      c.lineWidth = halo * 2; c.strokeStyle = 'rgba(255,255,255,.8)'; c.strokeText(t, g.textx, y);
-      c.fillStyle = st.color; c.fillText(t, g.textx, y);
-    });
+
+    if (g.badge){
+      const x0 = Math.min(g.tx, g.xend), w = Math.abs(g.xend - g.tx);
+      const r = Math.min(g.fpx * .35, g.boxh / 2);
+      c.save();
+      c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = g.fpx * .35; c.shadowOffsetY = g.fpx * .08;
+      c.fillStyle = rgba(st.box_bg, st.box_alpha / 100);
+      rr(c, x0, g.top, w, g.boxh, r); c.fill();
+      c.restore();
+      c.strokeStyle = st.color; c.lineWidth = Math.max(1, lw * .6);
+      rr(c, x0, g.top, w, g.boxh, r); c.stroke();
+      c.fillStyle = st.color; c.textBaseline = 'middle';
+      g.lines.forEach((t, j) => c.fillText(t, g.textx, g.top + g.fpx * .15 + j * g.lh + g.lh / 2));
+      c.textBaseline = 'alphabetic';
+    } else {
+      const n = g.lines.length, halo = g.fpx * st.halo_pct / 100;
+      g.lines.forEach((t, j) => {
+        const y = g.ty - g.fpx * .28 - (n - 1 - j) * g.lh;
+        if (halo > 0){ c.lineWidth = halo * 2; c.strokeStyle = 'rgba(255,255,255,.85)'; c.strokeText(t, g.textx, y); }
+        c.fillStyle = st.color; c.fillText(t, g.textx, y);
+      });
+    }
   }
   if (u && sel !== null && st.labels[sel]){
     const g = geom(c, st.labels[sel], k);
@@ -196,7 +244,7 @@ function paint(c, k, u){
     c.strokeRect(g.tx - 6 * u, g.ty - 6 * u, 12 * u, 12 * u);
     c.setLineDash([4 * u, 3 * u]); c.strokeStyle = '#2b7de9';
     const x0 = Math.min(g.tx, g.xend) - 4 * u, x1 = Math.max(g.tx, g.xend) + 4 * u;
-    c.strokeRect(x0, g.top - 4 * u, x1 - x0, g.ty - g.top + 8 * u);
+    c.strokeRect(x0, g.top - 4 * u, x1 - x0, g.bottom - g.top + 8 * u);
     c.setLineDash([]);
   }
 }
@@ -236,7 +284,7 @@ function hit(x, y){
   for (let i = st.labels.length - 1; i >= 0; i--){
     const g = geom(mc, st.labels[i], vs);
     const x0 = Math.min(g.tx, g.xend) - 6, x1 = Math.max(g.tx, g.xend) + 6;
-    if (x >= x0 && x <= x1 && y >= g.top - 6 && y <= g.ty + 8) return {i, part: 't'};
+    if (x >= x0 && x <= x1 && y >= g.top - 6 && y <= g.bottom + 8) return {i, part: 't'};
   }
   return null;
 }
@@ -308,7 +356,7 @@ function openEditor(i, isNew){
   const w = Math.max(260, Math.min(440, stage.clientWidth - 20));
   let x = cvLeft + Math.min(g.tx, g.xend);
   let y = cvTop + g.top - 48;
-  if (y < 6) y = cvTop + g.ty + 14;
+  if (y < 6) y = cvTop + g.bottom + 14;
   x = Math.max(6, Math.min(x, stage.clientWidth - w - 6));
   y = Math.max(6, Math.min(y, stage.clientHeight - 46));
   Object.assign(ed.style, {display: 'block', left: x + 'px', top: y + 'px', width: w + 'px'});
@@ -360,13 +408,15 @@ function selectUI(){
 function syncUI(){
   NUM.forEach(k => $('f_' + k).value = st[k]);
   COL.forEach(k => $('c_' + k).value = st[k]);
+  $('s_mode').value = st.mode; $('k_casing').checked = st.casing;
   refreshList(); selectUI();
 }
 
 $('selText').addEventListener('input', e => {
   if (sel === null) return;
   st.labels[sel].text = e.target.value; render();
-  const row = $('list').children[sel]; if (row) row.textContent = (sel + 1) + '. ' + e.target.value.replace(/\|/g, ' ⏎ ');
+  const row = $('list').children[sel];
+  if (row) row.textContent = (sel + 1) + '. ' + e.target.value.replace(/\|/g, ' ⏎ ');
 });
 $('selText').addEventListener('change', e => {
   if (sel === null) return;
@@ -396,6 +446,8 @@ COL.forEach(k => {
   el.addEventListener('input', () => { st[k] = el.value; render(); });
   el.addEventListener('change', commit);
 });
+$('s_mode').addEventListener('change', e => { st.mode = e.target.value; commit(); render(); });
+$('k_casing').addEventListener('change', e => { st.casing = e.target.checked; commit(); render(); });
 
 /* ---------- akcje ---------- */
 function align(){
@@ -415,7 +467,7 @@ function autofit(){
   for (const l of st.labels){
     const g = geom(mc, l, 1, {clamp: false, maxw});
     for (const x of [g.ax, g.tx, g.xend]){ minx = Math.min(minx, x); maxx = Math.max(maxx, x); }
-    miny = Math.min(miny, g.top, g.ay); maxy = Math.max(maxy, g.ty, g.ay);
+    miny = Math.min(miny, g.top, g.ay); maxy = Math.max(maxy, g.bottom, g.ay);
   }
   const m = st.font_size * .6;
   st.pl = minx < 0 ? Math.ceil(-minx + m) : 0;
@@ -463,7 +515,7 @@ $('bLoad').onclick = () => $('fileIn').click();
 $('fileIn').onchange = e => { if (e.target.files[0]) loadProject(e.target.files[0]); e.target.value = ''; };
 
 document.addEventListener('keydown', e => {
-  const typing = ['INPUT', 'TEXTAREA'].includes(e.target.tagName);
+  const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
   const mod = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
   if (typing) return;
   if (mod && key === 'z'){ e.preventDefault(); e.shiftKey ? redo() : undo(); }
@@ -491,8 +543,8 @@ function sampleBg(){
 
 img.onload = () => {
   const W = img.naturalWidth;
-  st.font_size = Math.max(14, Math.round(W * 0.02));
-  st.line_w = Math.max(1.5, Math.round(W * 0.0013 * 10) / 10);
+  st.font_size = Math.max(16, Math.round(W * 0.024));
+  st.line_w = Math.max(2, Math.round(W * 0.0016 * 10) / 10);
   try { st.bg = sampleBg(); } catch(e) {}
   base = snap();
   syncUI();
