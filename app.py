@@ -1,5 +1,6 @@
 import base64
 import io
+import json
 from pathlib import Path
 
 import streamlit as st
@@ -7,18 +8,26 @@ import streamlit.components.v1 as components
 from PIL import Image
 
 st.set_page_config(page_title="Opisywanie schematów", page_icon="📐",
-                   layout="wide", initial_sidebar_state="expanded")
+                   layout="wide", initial_sidebar_state="collapsed")
 st.markdown(
-    "<style>.block-container{padding:0.5rem 0.5rem 0 0.5rem;max-width:100%}"
-    "header[data-testid='stHeader']{height:0;visibility:hidden}</style>",
+    """
+    <style>
+      .block-container{padding:3rem 0.75rem 0 0.75rem;max-width:100%}
+      [data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"],
+      [data-testid="collapsedControl"]{display:none}
+    </style>
+    """,
     unsafe_allow_html=True)
 
-up = st.sidebar.file_uploader("📐 Wgraj grafikę", type=["png", "jpg", "jpeg", "webp"])
-st.sidebar.caption("Cała edycja odbywa się w przeglądarce. Po wgraniu zwiń ten panel (strzałka u góry), "
-                   "aby mieć więcej miejsca.")
+has_file = st.session_state.get("uploader") is not None
+with st.expander("📐 Wgraj / zmień grafikę", expanded=not has_file):
+    up = st.file_uploader("Wgraj grafikę", type=["png", "jpg", "jpeg", "webp"],
+                          key="uploader", label_visibility="collapsed")
+    st.caption("Cała edycja odbywa się w przeglądarce. Po zmianie grafiki opisy znikną, "
+               "więc wcześniej zapisz projekt (.json).")
 
 if up is None:
-    st.info("⬅️ Wgraj grafikę w panelu bocznym, aby zacząć.")
+    st.info("☝️ Wgraj grafikę powyżej, aby zacząć.")
     st.stop()
 
 raw = up.getvalue()
@@ -32,8 +41,7 @@ if len(raw) > 6_000_000 or max(im.size) > 5000:   # odchudzenie bardzo dużych p
     raw, mime = buf.getvalue(), "image/jpeg"
 
 data_url = f"data:{mime};base64,{base64.b64encode(raw).decode()}"
-import json
 html = (Path(__file__).parent / "editor.html").read_text(encoding="utf-8")
 html = html.replace("__IMAGE__", json.dumps(data_url)).replace("__NAME__", json.dumps(up.name))
 
-components.html(html, height=940, scrolling=False)
+components.html(html, height=900, scrolling=False)
